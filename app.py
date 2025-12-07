@@ -1,46 +1,43 @@
 from flask import Flask, request, jsonify
-from detector import detect
-import os
+from detector import detect_injection
 
 app = Flask(__name__)
 
-@app.route('/detect', methods=['POST'])
-def detect_route():
+@app.route("/")
+def home():
+    return jsonify({"status": "ok", "message": "Adversarial Prompt Injection Detector running"})
+
+@app.route("/detect", methods=["POST"])
+def detect():
     data = request.get_json(force=True)
-    prompt = data.get('input') or data.get('prompt') or ''
-    system = data.get('system') or ''
-    result = detect(prompt, system)
+    user_input = data.get("input", "")
+
+    result = detect_injection(user_input)
+
     return jsonify(result)
 
-@app.route('/proxy', methods=['POST'])
-def proxy_route():
-    """Example middleware endpoint that runs detection before forwarding to an LLM.
-    This demo DOES NOT call external APIs. Replace the mocked section with calls to your LLM provider.
-    Expected JSON: { 'input': '<user input>', 'system': '<system prompt optional>' }
-    """            data = request.get_json(force=True)
-    prompt = data.get('input') or data.get('prompt') or ''
-    system = data.get('system') or ''
-    res = detect(prompt, system)
-    # If high risk, block
-    if res['final_score'] >= 0.75:
-        return jsonify({ 'ok': False, 'reason': 'blocked_by_detector', 'detail': res }), 403
-    # For medium risk, we attach a warning and proceed (in real use: human review or modify prompt)
-    if res['final_score'] >= 0.35:
-        # In production you'd sanitize or ask for confirmation. Here we mock LLM response.
-        mock_response = {
-            'id': 'mock-1',
-            'object': 'text_completion',
-            'choices': [{'text': '<<SANITIZED RESPONSE: potential injection detected>>'}]
-        }
-        return jsonify({ 'ok': True, 'warning': 'medium_risk', 'detector': res, 'llm_response': mock_response })
-    # Low risk: mock forwarding to LLM provider (PLACEHOLDER)
-    mock_response = {
-        'id': 'mock-2',
-        'object': 'text_completion',
-        'choices': [{'text': '<<MOCK LLM RESPONSE: normal processing>>'}]
-    }
-    return jsonify({ 'ok': True, 'detector': res, 'llm_response': mock_response })
+@app.route("/proxy", methods=["POST"])
+def proxy():
+    """
+    Example endpoint showing how you might place the detector
+    in front of an LLM. It does NOT forward to any paid API.
+    """
+    data = request.get_json(force=True)
+    user_input = data.get("input", "")
 
-if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port)
+    security = detect_injection(user_input)
+
+    if security["verdict"] == "high":
+        return jsonify({
+            "blocked": True,
+            "reason": "Prompt identified as adversarial.",
+            "score": security["final_score"]
+        })
+
+    return jsonify({
+        "blocked": False,
+        "response": f"(Simulated model reply) You said: {user_input}"
+    })
+
+if __name__ == "__main__":
+    app.run(host="127.0.0.1", port=5000, debug=True)
